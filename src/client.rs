@@ -283,6 +283,10 @@ where
 mod tests {
     use super::*;
 
+    fn test_project() -> String {
+        std::env::var("GCP_PROJECT_ID").unwrap()
+    }
+
     #[tokio::test]
     async fn read_a_table_with_arrow() {
         if !std::path::Path::new("clientsecret.json").exists() {
@@ -299,11 +303,15 @@ mod tests {
 
         let mut client = Client::new(auth).await.unwrap();
 
-        let test_table = Table::new("bigquery-public-data", "london_bicycles", "cycle_stations");
+        let test_table = Table::new(
+            "bigquery-public-data",
+            "austin_bikeshare",
+            "bikeshare_stations",
+        );
 
         let mut read_session = client
             .read_session_builder(test_table)
-            .parent_project_id("openquery-public-testing".to_string())
+            .parent_project_id(test_project())
             .build()
             .await
             .unwrap();
@@ -317,6 +325,6 @@ mod tests {
             }
         }
 
-        assert_eq!(num_rows, 789);
+        assert_eq!(num_rows, 102);
     }
 }
