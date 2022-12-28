@@ -19,6 +19,11 @@ jobs:
     - name: Rust Toolchain
       uses: dtolnay/rust-toolchain@stable
 
+    - name: Protoc
+      run: |
+        apt update
+        apt-get install protobuf-compiler -y
+
     - name: Cargo Test
       env:
         SA: ${{ secrets.GCP_SERVICE_ACCOUNT }}
