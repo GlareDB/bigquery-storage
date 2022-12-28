@@ -5,7 +5,10 @@ on: [push, workflow_dispatch]
 jobs:
   tests:
     name: tests
-    runs-on: ubuntu
+    runs-on: ubuntu-latest
+    concurrency:
+      group: ci-${{ github.ref }}
+      cancel-in-progress: true
 
     steps:
     - name: Checkout
