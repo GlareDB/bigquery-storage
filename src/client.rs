@@ -19,26 +19,24 @@
 //!     Ok(())
 //! }
 //! ```
-use hyper::client::connect::Connect;
-use yup_oauth2::authenticator::Authenticator;
-
-use prost_types::Timestamp;
-use tonic::metadata::MetadataValue;
-use tonic::transport::{Channel, ClientTlsConfig};
-use tonic::{Request, Streaming};
-
 use crate::googleapis::google::cloud::bigquery::storage::v1::{
-big_query_read_client::BigQueryReadClient,
+    big_query_read_client::BigQueryReadClient,
     read_session::{TableModifiers, TableReadOptions},
     CreateReadSessionRequest, DataFormat, ReadRowsRequest, ReadRowsResponse,
     ReadSession as BigQueryReadSession, ReadStream,
 };
 use crate::Error;
 use crate::RowsStreamReader;
+use hyper::client::connect::Connect;
+use prost_types::Timestamp;
+use tonic::metadata::MetadataValue;
+use tonic::transport::{Channel, ClientTlsConfig};
+use tonic::{Request, Streaming};
+use yup_oauth2::authenticator::Authenticator;
 
-static API_ENDPOINT: &'static str = "https://bigquerystorage.googleapis.com";
-static API_DOMAIN: &'static str = "bigquerystorage.googleapis.com";
-static API_SCOPE: &'static str = "https://www.googleapis.com/auth/bigquery";
+static API_ENDPOINT: &str = "https://bigquerystorage.googleapis.com";
+static API_DOMAIN: &str = "bigquerystorage.googleapis.com";
+static API_SCOPE: &str = "https://www.googleapis.com/auth/bigquery";
 
 /// A fully qualified BigQuery table. This requires a `project_id`, a `dataset_id`
 /// and a `table_id`. Only alphanumerical and underscores are allowed for `dataset_id`
@@ -201,7 +199,7 @@ where
                     .inner
                     .schema
                     .clone()
-                    .ok_or(Error::invalid("empty schema response"))?;
+                    .ok_or_else(|| Error::invalid("empty schema response"))?;
                 Ok(Some(RowsStreamReader::new(schema, rows_stream)))
             }
             None => Ok(None),
@@ -240,11 +238,11 @@ where
     async fn new_request<D>(&self, t: D, params: &str) -> Result<Request<D>, Error> {
         let token = self.auth.token(&[API_SCOPE]).await?;
         let bearer_token = format!("Bearer {}", token.as_str());
-        let bearer_value = MetadataValue::from_str(&bearer_token)?;
+        let bearer_value: MetadataValue<_> = bearer_token.parse()?;
         let mut req = Request::new(t);
         let meta = req.metadata_mut();
         meta.insert("authorization", bearer_value);
-        meta.insert("x-goog-request-params", MetadataValue::from_str(params)?);
+        meta.insert("x-goog-request-params", params.parse()?);
         Ok(req)
     }
     async fn create_read_session(
@@ -285,6 +283,10 @@ where
 mod tests {
     use super::*;
 
+    fn test_project() -> String {
+        std::env::var("GCP_PROJECT_ID").unwrap()
+    }
+
     #[tokio::test]
     async fn read_a_table_with_arrow() {
         if !std::path::Path::new("clientsecret.json").exists() {
@@ -301,11 +303,15 @@ mod tests {
 
         let mut client = Client::new(auth).await.unwrap();
 
-        let test_table = Table::new("bigquery-public-data", "london_bicycles", "cycle_stations");
+        let test_table = Table::new(
+            "bigquery-public-data",
+            "austin_bikeshare",
+            "bikeshare_stations",
+        );
 
         let mut read_session = client
             .read_session_builder(test_table)
-            .parent_project_id("openquery-public-testing".to_string())
+            .parent_project_id(test_project())
             .build()
             .await
             .unwrap();
@@ -319,6 +325,6 @@ mod tests {
             }
         }
 
-        assert_eq!(num_rows, 789);
+        assert_eq!(num_rows, 102);
     }
 }

@@ -18,11 +18,13 @@ use arrow::ipc::reader::StreamReader as ArrowStreamReader;
 fn strip_continuation_bytes(msg: &[u8]) -> Result<&[u8], Error> {
     let header = msg
         .get(0..4)
-        .ok_or(Error::invalid("arrow message of invalid len"))?;
+        .ok_or_else(|| Error::invalid("arrow message of invalid len"))?;
     if header != [255; 4] {
         Err(Error::invalid("invalid arrow message"))
     } else {
-        let tail = msg.get(4..).ok_or(Error::invalid("empty arrow message"))?;
+        let tail = msg
+            .get(4..)
+            .ok_or_else(|| Error::invalid("empty arrow message"))?;
         Ok(tail)
     }
 }
@@ -49,18 +51,18 @@ impl RowsStreamReader {
             .map_err(|e| e.into())
             .and_then(|resp| {
                 let ReadRowsResponse { rows, .. } = resp;
-                let out =
-                    rows.ok_or(Error::invalid("no rows received"))
-                        .and_then(|rows| match rows {
-                            Rows::ArrowRecordBatch(ArrowRecordBatch {
-                                serialized_record_batch,
-                                ..
-                            }) => Ok(serialized_record_batch),
-                            _ => {
-                                let err = Error::invalid("expected arrow record batch");
-                                Err(err)
-                            }
-                        });
+                let out = rows
+                    .ok_or_else(|| Error::invalid("no rows received"))
+                    .and_then(|rows| match rows {
+                        Rows::ArrowRecordBatch(ArrowRecordBatch {
+                            serialized_record_batch,
+                            ..
+                        }) => Ok(serialized_record_batch),
+                        _ => {
+                            let err = Error::invalid("expected arrow record batch");
+                            Err(err)
+                        }
+                    });
                 ready(out)
             })
             .boxed();
@@ -81,7 +83,7 @@ impl RowsStreamReader {
 
         // Arrow StreamReader expects a zero message to signal the end
         // of the stream. Gotta give the people what they want.
-        buf.extend(&[0u8; 4]);
+        buf.extend([0u8; 4]);
 
         let reader = ArrowStreamReader::try_new(Cursor::new(buf))?;
 
