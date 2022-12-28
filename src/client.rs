@@ -25,8 +25,8 @@ use crate::googleapis::google::cloud::bigquery::storage::v1::{
     CreateReadSessionRequest, DataFormat, ReadRowsRequest, ReadRowsResponse,
     ReadSession as BigQueryReadSession, ReadStream,
 };
+use crate::BufferedArrowIpcReader;
 use crate::Error;
-use crate::RowsStreamReader;
 use hyper::client::connect::Connect;
 use prost_types::Timestamp;
 use tonic::metadata::MetadataValue;
@@ -191,7 +191,7 @@ where
     C: Connect + Clone + Send + Sync + 'static,
 {
     /// Take the next stream in this read session. Returns `None` when all streams have been taken.
-    pub async fn next_stream(&mut self) -> Result<Option<RowsStreamReader>, Error> {
+    pub async fn next_stream(&mut self) -> Result<Option<BufferedArrowIpcReader>, Error> {
         match self.inner.streams.pop() {
             Some(ReadStream { name }) => {
                 let rows_stream = self.client.read_stream_rows(&name).await?;
@@ -200,7 +200,7 @@ where
                     .schema
                     .clone()
                     .ok_or_else(|| Error::invalid("empty schema response"))?;
-                Ok(Some(RowsStreamReader::new(schema, rows_stream)))
+                Ok(Some(BufferedArrowIpcReader::new(schema, rows_stream)))
             }
             None => Ok(None),
         }
@@ -285,6 +285,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use arrow::ipc::reader::StreamReader as ArrowStreamReader;
+    use std::io::Cursor;
 
     fn test_project() -> String {
         std::env::var("GCP_PROJECT_ID").unwrap()
@@ -322,8 +324,9 @@ mod tests {
         let mut num_rows = 0;
 
         while let Some(stream_reader) = read_session.next_stream().await.unwrap() {
-            let mut arrow_stream_reader = stream_reader.into_arrow_reader().await.unwrap();
-            while let Some(record_batch) = arrow_stream_reader.next() {
+            let buf = stream_reader.into_vec().await.unwrap();
+            let mut reader = ArrowStreamReader::try_new(Cursor::new(buf), None).unwrap();
+            while let Some(record_batch) = reader.next() {
                 num_rows += record_batch.unwrap().num_rows();
             }
         }

@@ -4,31 +4,26 @@ use crate::googleapis::google::cloud::bigquery::storage::v1::{
 use crate::Error;
 use futures::future::ready;
 use futures::stream::{StreamExt, TryStreamExt};
-use std::io::Cursor;
 use tonic::Streaming;
 
-#[cfg(feature = "arrow")]
-use arrow::ipc::reader::StreamReader as ArrowStreamReader;
+/// End of stream marker for Arrow streams.
+const EOS_MARKER: [u8; 8] = [255, 255, 255, 255, 0, 0, 0, 0];
 
-#[cfg(feature = "arrow")]
-pub type DefaultArrowStreamReader = ArrowStreamReader<Cursor<Vec<u8>>>;
-
-/// A wrapper around a [BigQuery Storage stream](https://cloud.google.com/bigquery/docs/reference/storage#read_from_a_session_stream).
-pub struct RowsStreamReader {
+/// Wrapper around a 'read rows response' to buffer an Arrow IPC stream in
+/// memory.
+pub struct BufferedArrowIpcReader {
     schema: Schema,
-    upstream: Streaming<ReadRowsResponse>,
+    stream: Streaming<ReadRowsResponse>,
 }
 
-impl RowsStreamReader {
-    pub(crate) fn new(schema: Schema, upstream: Streaming<ReadRowsResponse>) -> Self {
-        Self { schema, upstream }
+impl BufferedArrowIpcReader {
+    pub(crate) fn new(schema: Schema, stream: Streaming<ReadRowsResponse>) -> Self {
+        Self { schema, stream }
     }
 
-    /// Consume the entire stream into an Arrow [StreamReader](arrow::ipc::reader::StreamReader).
-    #[cfg(feature = "arrow")]
-    pub async fn into_arrow_reader(self) -> Result<DefaultArrowStreamReader, Error> {
+    pub async fn into_vec(self) -> Result<Vec<u8>, Error> {
         let mut serialized_arrow_stream = self
-            .upstream
+            .stream
             .map_err(|e| e.into())
             .and_then(|resp| {
                 let ReadRowsResponse { rows, .. } = resp;
@@ -61,12 +56,9 @@ impl RowsStreamReader {
             buf.extend(msg.as_slice());
         }
 
-        // Arrow StreamReader expects a zero message to signal the end
-        // of the stream. Gotta give the people what they want.
-        buf.extend([0u8; 4]);
+        // Signal end of stream.
+        buf.extend(EOS_MARKER);
 
-        let reader = ArrowStreamReader::try_new(Cursor::new(buf), None)?;
-
-        Ok(reader)
+        Ok(buf)
     }
 }
