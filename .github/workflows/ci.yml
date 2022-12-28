@@ -21,8 +21,8 @@ jobs:
 
     - name: Protoc
       run: |
-        apt update
-        apt-get install protobuf-compiler -y
+        sudo apt update
+        sudo apt-get install protobuf-compiler -y
 
     - name: Cargo Test
       env:
