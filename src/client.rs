@@ -235,6 +235,7 @@ where
     pub fn read_session_builder(&mut self, table: Table) -> ReadSessionBuilder<'_, C> {
         ReadSessionBuilder::new(self, table)
     }
+
     async fn new_request<D>(&self, t: D, params: &str) -> Result<Request<D>, Error> {
         let token = self.auth.token(&[API_SCOPE]).await?;
         let bearer_token = format!("Bearer {}", token.as_str());
@@ -245,6 +246,7 @@ where
         meta.insert("x-goog-request-params", params.parse()?);
         Ok(req)
     }
+
     async fn create_read_session(
         &mut self,
         req: CreateReadSessionRequest,
@@ -260,6 +262,7 @@ where
             .into_inner();
         Ok(read_session)
     }
+
     async fn read_stream_rows(
         &mut self,
         stream: &str,

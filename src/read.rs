@@ -1,33 +1,14 @@
-use tonic::Streaming;
-
-use futures::future::ready;
-use futures::stream::{StreamExt, TryStreamExt};
-
-use std::io::Cursor;
-
 use crate::googleapis::google::cloud::bigquery::storage::v1::{
     read_rows_response::Rows, read_session::Schema, ArrowRecordBatch, ArrowSchema, ReadRowsResponse,
 };
 use crate::Error;
+use futures::future::ready;
+use futures::stream::{StreamExt, TryStreamExt};
+use std::io::Cursor;
+use tonic::Streaming;
 
 #[cfg(feature = "arrow")]
 use arrow::ipc::reader::StreamReader as ArrowStreamReader;
-
-/// Remove the continuation bytes segment of a valid Arrow IPC message
-#[cfg(feature = "arrow")]
-fn strip_continuation_bytes(msg: &[u8]) -> Result<&[u8], Error> {
-    let header = msg
-        .get(0..4)
-        .ok_or_else(|| Error::invalid("arrow message of invalid len"))?;
-    if header != [255; 4] {
-        Err(Error::invalid("invalid arrow message"))
-    } else {
-        let tail = msg
-            .get(4..)
-            .ok_or_else(|| Error::invalid("empty arrow message"))?;
-        Ok(tail)
-    }
-}
 
 #[cfg(feature = "arrow")]
 pub type DefaultArrowStreamReader = ArrowStreamReader<Cursor<Vec<u8>>>;
@@ -73,19 +54,18 @@ impl RowsStreamReader {
         };
 
         let mut buf = Vec::new();
-        buf.extend(strip_continuation_bytes(serialized_schema.as_slice())?);
+        buf.extend(serialized_schema.as_slice());
 
         while let Some(msg) = serialized_arrow_stream.next().await {
             let msg = msg?;
-            let body = strip_continuation_bytes(msg.as_slice())?;
-            buf.extend(body);
+            buf.extend(msg.as_slice());
         }
 
         // Arrow StreamReader expects a zero message to signal the end
         // of the stream. Gotta give the people what they want.
         buf.extend([0u8; 4]);
 
-        let reader = ArrowStreamReader::try_new(Cursor::new(buf))?;
+        let reader = ArrowStreamReader::try_new(Cursor::new(buf), None)?;
 
         Ok(reader)
     }
