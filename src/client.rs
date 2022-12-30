@@ -158,6 +158,7 @@ where
         if let Some(row_restriction) = self.opts.row_restriction {
             tro.row_restriction = row_restriction;
         }
+        inner.read_options = Some(tro);
 
         let parent_project_id = self.opts.parent_project_id.unwrap_or(self.table.project_id);
         let parent = format!("projects/{}", parent_project_id);
@@ -287,17 +288,15 @@ mod tests {
     use super::*;
     use arrow::ipc::reader::StreamReader as ArrowStreamReader;
     use std::io::Cursor;
+    use yup_oauth2::authenticator::{DefaultHyperClient, HyperClientBuilder};
 
     fn test_project() -> String {
         std::env::var("GCP_PROJECT_ID").unwrap()
     }
 
-    #[tokio::test]
-    async fn read_a_table_with_arrow() {
-        if !std::path::Path::new("clientsecret.json").exists() {
-            println!("skipping test, credentials not provided...");
-            return;
-        }
+    type DefaultConnector = <DefaultHyperClient as HyperClientBuilder>::Connector;
+
+    async fn create_test_client() -> Client<DefaultConnector> {
         let sa_key = yup_oauth2::read_service_account_key("clientsecret.json")
             .await
             .unwrap();
@@ -306,13 +305,35 @@ mod tests {
             .await
             .unwrap();
 
-        let mut client = Client::new(auth).await.unwrap();
+        Client::new(auth).await.unwrap()
+    }
 
+    // bigquery-public-data.austin_bikeshare.bikeshare_stations
+    //
+    // station_id        INTEGER   NULLABLE
+    // name              STRING    NULLABLE
+    // status            STRING    NULLABLE
+    // address           STRING    NULLABLE
+    // alternate_name    STRING    NULLABLE
+    // city_asset_number INTEGER   NULLABLE
+    // property_type     STRING    NULLABLE
+    // number_of_docks   INTEGER   NULLABLE
+    // power_type        STRING    NULLABLE
+    // footprint_length  INTEGER   NULLABLE
+    // footprint_width   FLOAT     NULLABLE
+    // notes             STRING    NULLABLE
+    // council_district  INTEGER   NULLABLE
+    // modified_date     TIMESTAMP NULLABLE
+
+    #[tokio::test]
+    async fn read_a_table_with_arrow() {
         let test_table = Table::new(
             "bigquery-public-data",
             "austin_bikeshare",
             "bikeshare_stations",
         );
+
+        let mut client = create_test_client().await;
 
         let mut read_session = client
             .read_session_builder(test_table)
@@ -332,5 +353,37 @@ mod tests {
         }
 
         assert_eq!(num_rows, 102);
+    }
+
+    #[tokio::test]
+    async fn projection() {
+        let test_table = Table::new(
+            "bigquery-public-data",
+            "austin_bikeshare",
+            "bikeshare_stations",
+        );
+
+        let mut client = create_test_client().await;
+
+        let mut read_session = client
+            .read_session_builder(test_table)
+            .parent_project_id(test_project())
+            .selected_fields(vec!["address".to_string(), "power_type".to_string()])
+            .build()
+            .await
+            .unwrap();
+
+        let mut at_least_one = false;
+        while let Some(stream) = read_session.next_stream().await.unwrap() {
+            let buf = stream.into_vec().await.unwrap();
+            let reader = ArrowStreamReader::try_new(Cursor::new(buf), None).unwrap();
+
+            let schema = reader.schema();
+            let schema_names: Vec<_> = schema.fields.iter().map(|f| f.name().as_str()).collect();
+            assert_eq!(vec!["address", "power_type"], schema_names);
+            at_least_one = true;
+        }
+
+        assert!(at_least_one);
     }
 }
