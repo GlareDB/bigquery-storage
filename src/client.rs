@@ -83,14 +83,14 @@ macro_rules! read_session_builder {
 
         /// A builder for [`ReadSession`](crate::client::ReadSession).
         /// When in doubt about what a field does, please refer to [`CreateReadSessionRequest`](crate::googleapis::CreateReadSessionRequest) and the [official API](https://cloud.google.com/bigquery/docs/reference/storage/rpc/google.cloud.bigquery.storage.v1) documentation.
-        pub struct ReadSessionBuilder<'a, T> {
-            client: &'a mut Client<T>,
+        pub struct ReadSessionBuilder<T> {
+            client: Client<T>,
             table: Table,
             opts: ReadSessionBuilderOpts
         }
 
-        impl<'a, T> ReadSessionBuilder<'a, T> {
-            fn new(client: &'a mut Client<T>, table: Table) -> Self {
+        impl<T> ReadSessionBuilder<T> {
+            fn new(client: Client<T>, table: Table) -> Self {
                 let opts = ReadSessionBuilderOpts::default();
                 Self { client, table, opts }
             }
@@ -127,13 +127,13 @@ read_session_builder! {
     parent_project_id: String,
 }
 
-impl<'a, C> ReadSessionBuilder<'a, C>
+impl<C> ReadSessionBuilder<C>
 where
     C: Connect + Clone + Send + Sync + 'static,
 {
     /// Build the [`ReadSession`](ReadSession). This will hit Google's API and
     /// prepare the desired read streams.
-    pub async fn build(self) -> Result<ReadSession<'a, C>, Error> {
+    pub async fn build(mut self) -> Result<ReadSession<C>, Error> {
         let table = self.table.to_string();
 
         let mut inner = BigQueryReadSession {
@@ -172,25 +172,35 @@ where
         };
 
         let inner = self.client.create_read_session(req).await?;
+        let total_streams = inner.streams.len();
 
         Ok(ReadSession {
             client: self.client,
             inner,
+            total_streams,
         })
     }
 }
 
 /// A practical wrapper around a [BigQuery Storage read session](https://cloud.google.com/bigquery/docs/reference/storage#create_a_session).
 /// Do not create it manually, use [`Client::read_session_builder`](Client::read_session_builder) instead.
-pub struct ReadSession<'a, C> {
-    client: &'a mut Client<C>,
+pub struct ReadSession<C> {
+    client: Client<C>,
     inner: BigQueryReadSession,
+    total_streams: usize,
 }
 
-impl<'a, C> ReadSession<'a, C>
+impl<C> ReadSession<C>
 where
     C: Connect + Clone + Send + Sync + 'static,
 {
+    /// Returns the total number of streams available. Will always return the
+    /// same value as the initial length of streams (not equivalent to
+    /// `self.inner.streams.len()`).
+    pub fn len_streams(&self) -> usize {
+        self.total_streams
+    }
+
     /// Take the next stream in this read session. Returns `None` when all streams have been taken.
     pub async fn next_stream(&mut self) -> Result<Option<BufferedArrowIpcReader>, Error> {
         match self.inner.streams.pop() {
@@ -233,7 +243,7 @@ where
     }
 
     /// Create a new [`ReadSessionBuilder`](ReadSessionBuilder).
-    pub fn read_session_builder(&mut self, table: Table) -> ReadSessionBuilder<'_, C> {
+    pub fn read_session_builder(self, table: Table) -> ReadSessionBuilder<C> {
         ReadSessionBuilder::new(self, table)
     }
 
@@ -333,7 +343,7 @@ mod tests {
             "bikeshare_stations",
         );
 
-        let mut client = create_test_client().await;
+        let client = create_test_client().await;
 
         let mut read_session = client
             .read_session_builder(test_table)
@@ -363,7 +373,7 @@ mod tests {
             "bikeshare_stations",
         );
 
-        let mut client = create_test_client().await;
+        let client = create_test_client().await;
 
         let mut read_session = client
             .read_session_builder(test_table)
