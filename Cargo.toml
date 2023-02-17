@@ -24,7 +24,7 @@ tonic-build = "0.8.0"
 
 [dev-dependencies]
 tokio = { version = "1.0", features = [ "rt", "macros" ] }
-arrow = { version = "32.0" }
+arrow = { version = "33.0" }
 
 [dependencies]
 futures = "0.3"
