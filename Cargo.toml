@@ -4,7 +4,7 @@ version = "0.1.2"
 authors = ["damien <damien@openquery.io>"]
 description = "A small wrapper around the Google BigQuery Storage API"
 keywords = [ "google", "bigquery", "storage" ]
-edition = "2018"
+edition = "2021"
 license = "Apache-2.0"
 homepage = "https://github.com/openquery-io/bigquery-storage"
 readme = "README.md"
@@ -20,15 +20,15 @@ doctest = false
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [build-dependencies]
-tonic-build = "0.8.0"
+tonic-build = "0.9.1"
 
 [dev-dependencies]
 tokio = { version = "1.0", features = [ "rt", "macros" ] }
-arrow = { version = "35.0" }
+arrow = { version = "36.0" }
 
 [dependencies]
 futures = "0.3"
-tonic = { version = "0.8.0", features = ["transport", "tls", "tls-roots"] }
+tonic = { version = "0.9.1", features = ["transport", "tls", "tls-roots"] }
 prost = "0.11.0"
 prost-types = "0.11.0"
 
